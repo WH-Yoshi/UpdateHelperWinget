@@ -158,9 +158,9 @@ impl eframe::App for PackageApp {
 
                 // Message d'erreur
                 if !self.error_message.is_empty() {
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(egui::Color32::from_rgb(153, 27, 27))
-                        .rounding(8.0)
+                        .corner_radius(8.0)
                         .inner_margin(8.0)
                         .show(ui, |ui| {
                             ui.colored_label(
@@ -177,9 +177,9 @@ impl eframe::App for PackageApp {
                     .show(ui, |ui| {
                         for package in &self.packages {
                             ui.add_space(4.0);
-                            egui::Frame::none()
+                            egui::Frame::new()
                                 .fill(egui::Color32::from_rgb(45, 45, 45))
-                                .rounding(8.0)
+                                .corner_radius(8.0)
                                 .inner_margin(12.0)
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
