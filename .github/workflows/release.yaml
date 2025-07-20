@@ -1,0 +1,100 @@
+name: Automated Semantic Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Setup Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+
+    - name: Set up Node.js for semantic-release
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Cache Node modules
+      uses: actions/cache@v3
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Install semantic-release and plugins
+      run: |
+        npm install --global semantic-release @semantic-release/git @semantic-release/changelog @semantic-release/github
+
+    - name: Run semantic-release
+      id: semantic_release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Token fourni automatiquement par GitHub
+      run: |
+        semantic-release --extends ./release.config.js
+
+    - name: Get new version from semantic-release output
+      id: get_version
+      run: |
+        # semantic-release met la nouvelle version dans un fichier .semrelrc
+        NEW_VERSION=$(jq -r '.nextRelease.version' ./.semrelrc)
+        echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+      shell: bash
+
+    - name: Update Cargo.toml version
+      if: env.NEW_VERSION != ''
+      run: |
+        sed -i "s/^version = \".*\"/version = \"${{ env.NEW_VERSION }}\"/" Cargo.toml
+        echo "Cargo.toml updated to version: ${{ env.NEW_VERSION }}"
+        cat Cargo.toml
+
+    - name: Build Rust project (with new version)
+      if: env.NEW_VERSION != ''
+      run: cargo build --release
+
+    - name: Add built artifacts to release
+      if: env.NEW_VERSION != ''
+      id: upload_release_assets
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ env.NEW_VERSION }}
+        name: Release v${{ env.NEW_VERSION }}
+        draft: false
+        prerelease: false
+        files: |
+          target/release/NewPackageLister
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Commit and push Cargo.toml changes (if version updated)
+      if: env.NEW_VERSION != ''
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add Cargo.toml
+        git commit -m "chore(release): bump version to ${{ env.NEW_VERSION }} [skip ci]"
+        git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Utilise le GITHUB_TOKEN pour pousser les changements
