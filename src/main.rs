@@ -35,12 +35,17 @@ impl Default for PackageApp {
 
 impl PackageApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        Self::default()
+        Self {
+            packages: Vec::new(),
+            error_message: String::new(),
+            promise: None,
+            is_loading: false,
+        }
     }
 
     fn fetch_updates_async(&mut self) {
         if self.promise.is_some() || self.is_loading {
-            return; // Évite les multiples requêtes
+            return;
         }
 
         self.is_loading = true;
@@ -50,7 +55,7 @@ impl PackageApp {
 
             thread::spawn(move || {
                 let output = Command::new("winget")
-                    .args(["upgrade", "--include-unknown"])
+                    .args(["upgrade"])
                     .output();
 
                 match output {
@@ -60,22 +65,20 @@ impl PackageApp {
                                 let mut packages = Vec::new();
                                 let lines: Vec<&str> = text.lines().collect();
 
-                                if lines.len() > 2 {
-                                    for line in lines[2..].iter() {
+                                if lines.len() > 3 {
+                                    for line in lines[3..].iter() {
                                         if line.trim().is_empty() || line.starts_with('-') {
                                             continue;
-                                        } else if line.ends_with("disponibles.") {
-                                            break;
                                         }
 
                                         let columns: Vec<&str> = line.split_whitespace().collect();
 
                                         if columns.len() >= 4 {
                                             let len = columns.len();
-                                            let available_version = columns[len - 2];
-                                            let version = columns[len - 3];
-                                            let id = columns[len - 4];
-                                            let name = columns[..(len - 4)].join(" ");
+                                            let available_version = columns[len - 1];
+                                            let version = columns[len - 2];
+                                            let id = columns[len - 3];
+                                            let name = columns[..(len - 3)].join(" ");
 
                                             packages.push(Package {
                                                 name,
@@ -86,7 +89,11 @@ impl PackageApp {
                                         }
                                     }
                                     tx.send(Ok(packages)).ok();
+                                } else {
+                                    tx.send(Ok(Vec::new())).ok(); // Envoyer une liste vide si pas de résultats
                                 }
+                            } else {
+                                tx.send(Err("Erreur de décodage UTF-8".to_string())).ok();
                             }
                         } else {
                             let error = String::from_utf8_lossy(&output.stderr).to_string();
@@ -105,6 +112,7 @@ impl PackageApp {
         self.promise = Some(promise);
     }
 }
+
 
 impl eframe::App for PackageApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -155,6 +163,27 @@ impl eframe::App for PackageApp {
                 });
 
                 ui.add_space(10.0);
+
+                if let Some(promise) = &self.promise {
+                    if let Some(result) = promise.ready() {
+                        match result {
+                            Ok(packages) => {
+                                self.packages = packages.clone();
+                                self.error_message.clear();
+                            }
+                            Err(error) => {
+                                self.error_message = error.clone();
+                                self.packages.clear();
+                            }
+                        }
+                        self.promise = None;
+                        self.is_loading = false;
+                    } else {
+                        // La promesse n'est pas encore prête
+                        ui.spinner();
+                        ctx.request_repaint();
+                    }
+                }
 
                 // Message d'erreur
                 if !self.error_message.is_empty() {
@@ -226,10 +255,6 @@ impl eframe::App for PackageApp {
                     });
             });
         });
-
-        if self.is_loading {
-            ctx.request_repaint();
-        }
     }
 }
 
