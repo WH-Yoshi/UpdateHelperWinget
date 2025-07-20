@@ -65,20 +65,22 @@ impl PackageApp {
                                 let mut packages = Vec::new();
                                 let lines: Vec<&str> = text.lines().collect();
 
-                                if lines.len() > 3 {
-                                    for line in lines[3..].iter() {
+                                if lines.len() > 2 {
+                                    for line in lines[2..].iter() {
                                         if line.trim().is_empty() || line.starts_with('-') {
                                             continue;
+                                        } else if line.ends_with("disponibles.") {
+                                            break;
                                         }
 
                                         let columns: Vec<&str> = line.split_whitespace().collect();
 
                                         if columns.len() >= 4 {
                                             let len = columns.len();
-                                            let available_version = columns[len - 1];
-                                            let version = columns[len - 2];
-                                            let id = columns[len - 3];
-                                            let name = columns[..(len - 3)].join(" ");
+                                            let available_version = columns[len - 2];
+                                            let version = columns[len - 3];
+                                            let id = columns[len - 4];
+                                            let name = columns[..(len - 4)].join(" ");
 
                                             packages.push(Package {
                                                 name,
