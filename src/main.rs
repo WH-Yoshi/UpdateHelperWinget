@@ -1,3 +1,6 @@
+mod gui;
+mod winget_manager;
+
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
