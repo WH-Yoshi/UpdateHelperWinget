@@ -249,9 +249,6 @@ impl eframe::App for PackageApp {
                             Ok(packages) => {
                                 self.packages = packages.clone();
                                 self.error_message.clear();
-                                if self.updating_package_id.is_some() {
-                                    self.fetch_updates_async();
-                                }
                             }
                             Err(error) => {
                                 self.error_message = error.clone();

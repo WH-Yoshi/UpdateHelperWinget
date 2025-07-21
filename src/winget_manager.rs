@@ -89,7 +89,11 @@ impl WingetManager {
             match result {
                 Ok(output) => {
                     if output.status.success() {
-                        tx.send(Ok(Vec::new())).ok();
+                        let rx_updates = WingetManager::fetch_updates_async();
+                        match rx_updates.recv() {
+                            Ok(result) => tx.send(result).ok(),
+                            Err(_) => tx.send(Err("Erreur lors de la récupération des mises à jour".to_string())).ok(),
+                        };
                     } else {
                         let error = String::from_utf8_lossy(&output.stderr);
                         tx.send(Err(format!(
@@ -102,7 +106,7 @@ impl WingetManager {
                         "Impossible d'exécuter winget pour {id}: {e}"
                     ))).ok();
                 }
-            } 
+            }
         });
 
         rx
