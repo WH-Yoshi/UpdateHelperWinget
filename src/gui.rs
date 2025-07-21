@@ -24,7 +24,9 @@ impl Default for PackageApp {
 
 impl PackageApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        Self::default()
+        let mut app = Self::default();
+        app.fetch_updates_async();
+        app
     }
 
     fn fetch_updates_async(&mut self) {
@@ -247,6 +249,9 @@ impl eframe::App for PackageApp {
                             Ok(packages) => {
                                 self.packages = packages.clone();
                                 self.error_message.clear();
+                                if self.updating_package_id.is_some() {
+                                    self.fetch_updates_async();
+                                }
                             }
                             Err(error) => {
                                 self.error_message = error.clone();
@@ -254,12 +259,13 @@ impl eframe::App for PackageApp {
                             }
                         }
                         self.promise = None;
-                        self.updating_package_id = None; // Réinitialiser l'ID du package en cours de mise à jour
+                        self.updating_package_id = None;
                         self.is_loading = false;
                     } else {
                         ctx.request_repaint();
                     }
                 }
+
             });
         });
     }
