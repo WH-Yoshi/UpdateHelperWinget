@@ -10,9 +10,6 @@ lto = true
 codegen-units = 1
 panic = "abort"
 
-[build]
-target = "x86_64-pc-windows-msvc"
-
 [dependencies]
 eframe = "0.32.0"
 egui = "0.32.0"

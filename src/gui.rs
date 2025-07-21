@@ -1,4 +1,4 @@
-use crate::winget_manager::{Package, WingetManager, open_url};
+use crate::winget_manager::{open_url, Package, WingetManager};
 use eframe::egui;
 use poll_promise::Promise;
 
@@ -7,6 +7,7 @@ pub struct PackageApp {
     error_message: String,
     promise: Option<Promise<Result<Vec<Package>, String>>>,
     is_loading: bool,
+    updating_package_id: Option<String>,
 }
 
 impl Default for PackageApp {
@@ -16,6 +17,7 @@ impl Default for PackageApp {
             error_message: String::new(),
             promise: None,
             is_loading: false,
+            updating_package_id: None,
         }
     }
 }
@@ -39,6 +41,22 @@ impl PackageApp {
 
         self.promise = Some(promise);
     }
+
+    fn update_single_async(&mut self, package_id: &str) {
+        if self.promise.is_some() || self.updating_package_id.is_some() {
+            return;
+        }
+
+        self.updating_package_id = Some(package_id.to_string());
+
+        let package_id = package_id.to_string();
+        let promise = Promise::spawn_thread("winget_install_single", move || {
+            let rx = WingetManager::install_single(&package_id);
+            rx.recv().unwrap_or(Err("Erreur de communication avec le thread".to_string()))
+        });
+
+        self.promise = Some(promise);
+    }
 }
 
 impl eframe::App for PackageApp {
@@ -52,7 +70,6 @@ impl eframe::App for PackageApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical(|ui| {
-                // En-tête avec titre et bouton
                 ui.horizontal(|ui| {
                     ui.heading(egui::RichText::new("Gestionnaire de Mises à Jour (winget)")
                         .size(24.0)
@@ -109,7 +126,6 @@ impl eframe::App for PackageApp {
                     }
                 }
 
-                // Message d'erreur
                 if !self.error_message.is_empty() {
                     egui::Frame::new()
                         .fill(egui::Color32::from_rgb(153, 27, 27))
@@ -124,10 +140,10 @@ impl eframe::App for PackageApp {
                     ui.add_space(10.0);
                 }
 
-                // Liste des packages
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        let mut package_to_update = None;
                         for package in &self.packages {
                             ui.add_space(4.0);
                             egui::Frame::new()
@@ -151,8 +167,10 @@ impl eframe::App for PackageApp {
                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                             if ui.add_sized(
                                                 [100.0, 30.0],
-                                                egui::Button::new("Rechercher")
-                                                    .fill(egui::Color32::from_rgb(59, 130, 246))
+                                                egui::Button::new(
+                                                    egui::RichText::new("Rechercher")
+                                                        .color(egui::Color32::WHITE)
+                                                ).fill(egui::Color32::from_rgb(59, 130, 246))
                                             ).clicked() {
                                                 let search_url = format!(
                                                     "https://www.google.com/search?q={}+software+download",
@@ -161,22 +179,87 @@ impl eframe::App for PackageApp {
                                                 open_url(&search_url);
                                             }
 
-                                            ui.label(
-                                                egui::RichText::new(
-                                                    format!("{} → {}", package.version, package.available_version)
+                                            let is_updating_this_package = self.updating_package_id.as_ref() == Some(&package.id);
+
+                                            let update_button = ui.add_sized(
+                                                [100.0, 30.0],
+                                                egui::Button::new(
+                                                    egui::RichText::new(
+                                                        if is_updating_this_package {
+                                                            "Mise à jour..."
+                                                        } else {
+                                                            "Installer"
+                                                        }
+                                                    ).color(egui::Color32::BLACK)
                                                 )
-                                                    .color(if package.version != package.available_version {
-                                                        egui::Color32::from_rgb(234, 179, 8)
+                                                    .fill(if is_updating_this_package {
+                                                        egui::Color32::from_rgb(70, 70, 70)
                                                     } else {
-                                                        egui::Color32::from_rgb(34, 197, 94)
+                                                        egui::Color32::from_rgb(234, 179, 8)
                                                     })
-                                                    .size(16.0)
                                             );
+
+                                            if update_button.clicked() && self.updating_package_id.is_none() {
+                                                package_to_update = Some(package.id.clone());
+                                            }
+
+                                            if is_updating_this_package {
+                                                ui.spinner();
+                                            }
+
+                                            ui.horizontal(|ui| {  // Right to Left
+                                                ui.label(
+                                                    egui::RichText::new(&package.available_version)
+                                                        .color(if package.version != package.available_version {
+                                                            egui::Color32::from_rgb(234, 179, 8)
+                                                        } else {
+                                                            egui::Color32::from_rgb(34, 197, 94)
+                                                        })
+                                                        .size(16.0)
+                                                );
+
+                                                ui.label(
+                                                    egui::RichText::new(" to ")
+                                                        .color(egui::Color32::from_rgb(100, 100, 100))
+                                                        .size(16.0)
+                                                );
+
+                                                ui.label(
+                                                    egui::RichText::new(&package.version)
+                                                        .color(egui::Color32::from_rgb(150, 150, 150))
+                                                        .size(16.0)
+                                                );
+                                            });
+
                                         });
                                     });
                                 });
                         }
+
+                        if let Some(id) = package_to_update {
+                            self.update_single_async(&id);
+                        }
                     });
+
+                if let Some(promise) = &self.promise {
+                    if let Some(result) = promise.ready() {
+                        match result {
+                            Ok(packages) => {
+                                self.packages = packages.clone();
+                                self.error_message.clear();
+                            }
+                            Err(error) => {
+                                self.error_message = error.clone();
+                                self.packages.clear();
+                            }
+                        }
+                        self.promise = None;
+                        self.updating_package_id = None; // Réinitialiser l'ID du package en cours de mise à jour
+                        self.is_loading = false;
+                    } else {
+                        ctx.request_repaint();
+                    }
+                }
             });
         });
     }

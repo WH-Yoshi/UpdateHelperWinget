@@ -20,7 +20,7 @@ impl WingetManager {
         thread::spawn(move || {
             let output = Command::new("winget")
                 .creation_flags(0x08000000)
-                .args(["upgrade", "--include-unknown"])
+                .args(["upgrade"])  // "--include-unknown"
                 .output();
 
             match output {
@@ -71,6 +71,38 @@ impl WingetManager {
                     tx.send(Err(format!("Erreur lors de l'exécution de winget: {}", e))).ok();
                 }
             }
+        });
+
+        rx
+    }
+
+    pub fn install_single(id: &str) -> mpsc::Receiver<Result<Vec<Package>, String>> {
+        let (tx, rx) = mpsc::channel();
+        let id = id.to_string();
+
+        thread::spawn(move || {
+            let result = Command::new("winget")
+                .creation_flags(0x08000000)
+                .args(["upgrade", "--id", &id, "--accept-source-agreements"])
+                .output();
+
+            match result {
+                Ok(output) => {
+                    if output.status.success() {
+                        tx.send(Ok(Vec::new())).ok();
+                    } else {
+                        let error = String::from_utf8_lossy(&output.stderr);
+                        tx.send(Err(format!(
+                            "Erreur lors de la mise à jour de {id}: {error}"
+                        ))).ok();
+                    }
+                }
+                Err(e) => {
+                    tx.send(Err(format!(
+                        "Impossible d'exécuter winget pour {id}: {e}"
+                    ))).ok();
+                }
+            } 
         });
 
         rx
