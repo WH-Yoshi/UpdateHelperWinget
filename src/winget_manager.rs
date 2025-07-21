@@ -1,7 +1,9 @@
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
+
 
 #[derive(Debug, Clone)]
 pub struct Package {
@@ -18,8 +20,15 @@ impl WingetManager {
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
-            let output = Command::new("winget")
-                .creation_flags(0x08000000)
+            let mut command = Command::new("winget");
+
+            #[cfg(target_os = "windows")]
+            {
+                command.creation_flags(0x08000000);
+            }
+
+
+            let output = command
                 .args(["upgrade"])  // "--include-unknown"
                 .output();
 
@@ -81,8 +90,14 @@ impl WingetManager {
         let id = id.to_string();
 
         thread::spawn(move || {
-            let result = Command::new("winget")
-                .creation_flags(0x08000000)
+            let mut command = Command::new("winget");
+
+            #[cfg(target_os = "windows")]
+            {
+                command.creation_flags(0x08000000);
+            }
+
+            let result = command
                 .args(["upgrade", "--id", &id, "--accept-source-agreements"])
                 .output();
 

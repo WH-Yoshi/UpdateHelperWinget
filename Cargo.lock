@@ -9,6 +9,7 @@ dependencies = [
  "eframe",
  "egui",
  "poll-promise",
+ "winapi",
 ]
 
 [[package]]
