@@ -51,15 +51,27 @@ jobs:
       - name: Build Rust project
         run: cargo build --release
 
+      # Ajout d'une étape de débogage
+      - name: Debug - List Release Directory
+        shell: pwsh
+        run: |
+         Write-Output "Contenu du dossier target/release :"
+         Get-ChildItem -Path "target/release" -File | ForEach-Object {
+           Write-Output $_.Name
+         }
+
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: true
-          files: |
-            target\release\NewPackageLister.exe
+         tag_name: ${{ github.ref_name }}
+         name: Release ${{ github.ref_name }}
+         draft: false
+         prerelease: true
+         files: |
+           ./target/release/update_helper_winget.exe
+           ./target/release/updatehelperwinget.exe
+           ./target/release/newpackagelister.exe
+           ./target/release/new_package_lister.exe
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
