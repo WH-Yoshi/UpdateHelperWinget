@@ -2,12 +2,19 @@ use serde_json::from_str;
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+use open;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Package {
+    #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Id")]
     pub id: String,
+    #[serde(rename = "InstalledVersion")]
     pub version: String,
+    #[serde(rename = "AvailableVersion")]
     pub available_version: String,
 }
 
@@ -21,16 +28,17 @@ impl WingetManager {
             let ps_script = r#"
                 Import-Module Microsoft.WinGet.Client
                 $updates = Get-WinGetPackage | Where-Object { $_.IsUpdateAvailable }
-                $updates | Select-Object Name, Id, InstalledVersion, @{Name='AvailableVersion'; Expression={ $_.AvailableVersions[0] }} | ConvertTo-Json -Compress
+                $updates | Select-Object Name, Id, InstalledVersion, @{Name='AvailableVersion'; Expression={ $_.AvailableVersions[0] }} | ConvertTo-Json -Compress -AsArray
             "#;
 
-            let output = Command::new("powershell")
+            let output = Command::new("pwsh")
                 .args([
                     "-NoProfile",
                     "-ExecutionPolicy", "Bypass",
                     "-Command",
                     ps_script,
                 ])
+                .creation_flags(0x08000000)
                 .output();
 
             match output {
@@ -61,10 +69,10 @@ impl WingetManager {
                 Import-Module Microsoft.WinGet.Client
                 Install-WinGetPackage -id '{id}' -AcceptSourceAgreements | Out-Null
                 $updates = Get-WinGetPackage | Where-Object {{ $_.IsUpdateAvailable }}
-                $updates | Select-Object name, id, version, available_version | ConvertTo-Json -Compress
+                $updates | Select-Object Name, Id, InstalledVersion, @{{Name='AvailableVersion'; Expression={{ $_.AvailableVersions[0] }}}} | ConvertTo-Json -AsArray
             "#);
 
-            let output = Command::new("powershell")
+            let output = Command::new("pwsh")
                 .args([
                     "-NoProfile",
                     "-ExecutionPolicy", "Bypass",
@@ -93,12 +101,7 @@ impl WingetManager {
     }
 }
 
-pub fn open_url(url: &str) {
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("cmd")
-            .args(["/C", "start", url])
-            .spawn()
-            .ok();
-    }
+pub fn open_url(url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    open::that(url)?;
+    Ok(())
 }

@@ -179,7 +179,7 @@ impl eframe::App for PackageApp {
                                                     "https://www.google.com/search?q={}+software+download",
                                                     package.name.replace(" ", "+")
                                                 );
-                                                open_url(&search_url);
+                                                open_url(&search_url).expect("Failed to open URL");
                                             }
 
                                             let is_updating_this_package = self.updating_package_id.as_ref() == Some(&package.id);
