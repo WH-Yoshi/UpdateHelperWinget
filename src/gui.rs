@@ -1,11 +1,13 @@
-use crate::winget_manager::{open_url, Package, WingetManager};
+use crate::winget_manager::{open_url, InstallResult, Package, WingetError, WingetManager};
 use eframe::egui::{vec2, Align, Button, CentralPanel, Color32, Context, Frame, Layout, RichText, ScrollArea};
 use poll_promise::Promise;
 
 pub struct PackageApp {
     packages: Vec<Package>,
-    error_message: String,
-    promise: Option<Promise<Result<Vec<Package>, String>>>,
+    error: Option<WingetError>,
+    install_result: Option<InstallResult>,
+    fetch_promise: Option<Promise<Result<Vec<Package>, WingetError>>>,
+    install_promise: Option<Promise<Result<InstallResult, WingetError>>>,
     is_loading: bool,
     updating_package_id: Option<String>,
 }
@@ -14,8 +16,10 @@ impl Default for PackageApp {
     fn default() -> Self {
         Self {
             packages: Vec::new(),
-            error_message: String::new(),
-            promise: None,
+            error: None,
+            install_result: None,
+            fetch_promise: None,
+            install_promise: None,
             is_loading: false,
             updating_package_id: None,
         }
@@ -30,7 +34,7 @@ impl PackageApp {
     }
 
     fn fetch_updates_async(&mut self) {
-        if self.promise.is_some() || self.is_loading {
+        if self.fetch_promise.is_some() || self.is_loading {
             return;
         }
 
@@ -38,14 +42,16 @@ impl PackageApp {
 
         let promise = Promise::spawn_thread("winget_fetch", || {
             let rx = WingetManager::fetch_updates_async();
-            rx.recv().unwrap_or(Err("Erreur de communication avec le thread".to_string()))
+            rx.recv().unwrap_or(Err(WingetError::CommandFailed { 
+                error: "Erreur de communication avec le thread".to_string() 
+            }))
         });
 
-        self.promise = Some(promise);
+        self.fetch_promise = Some(promise);
     }
 
     fn update_single_async(&mut self, package_id: &str) {
-        if self.promise.is_some() || self.updating_package_id.is_some() {
+        if self.install_promise.is_some() || self.updating_package_id.is_some() {
             return;
         }
 
@@ -54,10 +60,12 @@ impl PackageApp {
         let package_id = package_id.to_string();
         let promise = Promise::spawn_thread("winget_install_single", move || {
             let rx = WingetManager::install_single(&package_id);
-            rx.recv().unwrap_or(Err("Erreur de communication avec le thread".to_string()))
+            rx.recv().unwrap_or(Err(WingetError::CommandFailed { 
+                error: "Erreur de communication avec le thread".to_string() 
+            }))
         });
 
-        self.promise = Some(promise);
+        self.install_promise = Some(promise);
     }
 }
 
@@ -89,6 +97,7 @@ impl eframe::App for PackageApp {
                                     }
                                 )
                                     .size(16.0)
+                                    .color(Color32::WHITE)
                             )
                                 .fill(if self.is_loading {
                                     Color32::from_rgb(70, 70, 70)
@@ -109,36 +118,158 @@ impl eframe::App for PackageApp {
 
                 ui.add_space(10.0);
 
-                if let Some(promise) = &self.promise {
+                // Handle fetch promise
+                if let Some(promise) = &self.fetch_promise {
                     if let Some(result) = promise.ready() {
+                        self.error = None;
                         match result {
                             Ok(packages) => {
                                 self.packages = packages.clone();
-                                self.error_message.clear();
                             }
                             Err(error) => {
-                                self.error_message = error.clone();
+                                self.error = Some(error.clone());
                                 self.packages.clear();
                             }
                         }
-                        self.promise = None;
+                        self.fetch_promise = None;
                         self.is_loading = false;
+                    } else {
+                        ctx.request_repaint();
+                    }
+                }
+
+                // Handle install promise
+                if let Some(promise) = &self.install_promise {
+                    if let Some(result) = promise.ready() {
+                        match result {
+                            Ok(install_result) => {
+                                self.install_result = Some(install_result.clone());
+                                self.error = None;
+                                // Refresh the package list after installation
+                                // self.fetch_updates_async();
+                            }
+                            Err(error) => {
+                                self.error = Some(error.clone());
+                                self.install_result = None;
+                            }
+                        }
+                        self.install_promise = None;
                         self.updating_package_id = None;
                     } else {
                         ctx.request_repaint();
                     }
                 }
 
-                if !self.error_message.is_empty() {
+                // Display install result
+                if let Some(install_result) = &self.install_result.clone() {
+                    let is_success = install_result.status == "Ok";
+                    let is_error = install_result.status == "InstallError";
+                    
                     Frame::new()
-                        .fill(Color32::from_rgb(153, 27, 27))
+                        .fill(if is_success {
+                            Color32::from_rgb(34, 197, 94)  // Green for success
+                        } else if is_error {
+                            Color32::from_rgb(220, 38, 38)  // Red for install error
+                        } else {
+                            Color32::from_rgb(234, 179, 8)  // Yellow for other statuses
+                        })
                         .corner_radius(8.0)
                         .inner_margin(8.0)
                         .show(ui, |ui| {
-                            ui.colored_label(
-                                Color32::WHITE,
-                                format!("⚠ {}", self.error_message)
-                            );
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    let status_text = if is_success {
+                                        format!("Installation de {} réussie", install_result.name)
+                                    } else if is_error {
+                                        format!("Erreur lors de l'installation de {} (Code: {})", 
+                                            install_result.name, install_result.installer_error_code)
+                                    } else {
+                                        format!("{} - Status: {}", install_result.name, install_result.status)
+                                    };
+                                    
+                                    ui.colored_label(Color32::WHITE, status_text);
+                                    
+                                    // Debug info
+                                    ui.label(
+                                        RichText::new(format!("ID: {} | Source: {} | Reboot: {}", 
+                                            install_result.id, 
+                                            install_result.source,
+                                            if install_result.reboot_required { "Oui" } else { "Non" }
+                                        ))
+                                        .size(12.0)
+                                        .color(Color32::from_rgb(220, 220, 220))
+                                    );
+                                });
+                                
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui.small_button("×").clicked() {
+                                        self.install_result = None;
+                                    }
+                                });
+                            });
+                        });
+                    ui.add_space(10.0);
+                }
+                
+                // Display error message
+                if let Some(error) = &self.error.clone() {
+                    let (color, icon, message) = match error {
+                        WingetError::NoUpdatesAvailable => (
+                            Color32::from_rgb(59, 130, 246),  // Blue for info
+                            "ℹ",
+                            "Aucune mise à jour disponible.".to_string()
+                        ),
+                        WingetError::PowerShellNotFound => (
+                            Color32::from_rgb(220, 38, 38),  // Red for critical
+                            "⚠",
+                            "PowerShell n'est pas installé ou n'est pas accessible.".to_string()
+                        ),
+                        WingetError::WinGetModuleNotInstalled => (
+                            Color32::from_rgb(220, 38, 38),
+                            "⚠",
+                            "Le module WinGet n'est pas installé. Installez-le avec: Install-Module Microsoft.WinGet.Client".to_string()
+                        ),
+                        WingetError::ScriptExecutionDisabled => (
+                            Color32::from_rgb(220, 38, 38),
+                            "⚠",
+                            "L'exécution de scripts PowerShell est désactivée. Exécutez PowerShell en tant qu'administrateur et tapez: Set-ExecutionPolicy RemoteSigned".to_string()
+                        ),
+                        WingetError::PowerShellError { stderr } => (
+                            Color32::from_rgb(220, 38, 38),
+                            "⚠",
+                            format!("Erreur PowerShell: {}", stderr)
+                        ),
+                        WingetError::JsonParseError { error, raw_data } => (
+                            Color32::from_rgb(220, 38, 38),
+                            "⚠",
+                            format!("Erreur d'analyse JSON: {}\nDonnées brutes: {}", error, raw_data)
+                        ),
+                        WingetError::CommandFailed { error } => (
+                            Color32::from_rgb(220, 38, 38),
+                            "⚠",
+                            format!("Échec de la commande: {}", error)
+                        ),
+                    };
+                    
+                    Frame::new()
+                        .fill(color)
+                        .corner_radius(8.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.colored_label(
+                                        Color32::WHITE,
+                                        format!("{} {}", icon, message)
+                                    );
+                                });
+                                
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui.small_button("×").clicked() {
+                                        self.error = None;
+                                    }
+                                });
+                            });
                         });
                     ui.add_space(10.0);
                 }
