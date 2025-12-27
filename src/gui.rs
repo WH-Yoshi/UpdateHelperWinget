@@ -1,4 +1,4 @@
-use crate::winget_manager::{open_url, InstallResult, Package, WingetError, WingetManager};
+use crate::winget_manager::{open_url, CancellationToken, InstallResult, Package, WingetError, WingetManager};
 use eframe::egui::{vec2, Align, Button, CentralPanel, Color32, Context, Frame, Layout, RichText, ScrollArea};
 use poll_promise::Promise;
 
@@ -10,6 +10,8 @@ pub struct PackageApp {
     install_promise: Option<Promise<Result<InstallResult, WingetError>>>,
     is_loading: bool,
     updating_package_id: Option<String>,
+    cancel_token: Option<CancellationToken>,
+    cancel_clicked: bool,
 }
 
 impl Default for PackageApp {
@@ -22,6 +24,8 @@ impl Default for PackageApp {
             install_promise: None,
             is_loading: false,
             updating_package_id: None,
+            cancel_token: None,
+            cancel_clicked: false,
         }
     }
 }
@@ -56,10 +60,13 @@ impl PackageApp {
         }
 
         self.updating_package_id = Some(package_id.to_string());
+        let cancel_token = CancellationToken::new();
+        self.cancel_token = Some(cancel_token.clone());
+        self.cancel_clicked = false;
 
         let package_id = package_id.to_string();
         let promise = Promise::spawn_thread("winget_install_single", move || {
-            let rx = WingetManager::install_single(&package_id);
+            let rx = WingetManager::install_single(&package_id, cancel_token);
             rx.recv().unwrap_or(Err(WingetError::CommandFailed { 
                 error: "Erreur de communication avec le thread".to_string() 
             }))
@@ -155,6 +162,8 @@ impl eframe::App for PackageApp {
                         }
                         self.install_promise = None;
                         self.updating_package_id = None;
+                        self.cancel_token = None;
+                        self.cancel_clicked = false;
                     } else {
                         ctx.request_repaint();
                     }
@@ -249,6 +258,11 @@ impl eframe::App for PackageApp {
                             "⚠",
                             format!("Échec de la commande: {}", error)
                         ),
+                        WingetError::Cancelled => (
+                            Color32::from_rgb(234, 179, 8),  // Yellow for warning
+                            "⏸",
+                            "Mise à jour annulée par l'utilisateur.".to_string()
+                        ),
                     };
                     
                     Frame::new()
@@ -299,6 +313,38 @@ impl eframe::App for PackageApp {
                                         });
 
                                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                            let is_updating_this_package = self.updating_package_id.as_ref() == Some(&package.id);
+
+                                            // Show cancel button if this package is updating
+                                            if is_updating_this_package {
+                                                let (button_text, button_color) = if self.cancel_clicked {
+                                                    ("Forcer ?", Color32::from_rgb(185, 28, 28)) // Darker red for force
+                                                } else {
+                                                    ("Annuler", Color32::from_rgb(220, 38, 38)) // Regular red for cancel
+                                                };
+
+                                                let cancel_button = ui.add_sized(
+                                                    [100.0, 30.0],
+                                                    Button::new(
+                                                        RichText::new(button_text)
+                                                            .color(Color32::WHITE)
+                                                    ).fill(button_color)
+                                                );
+
+                                                if cancel_button.clicked() {
+                                                    if let Some(token) = &self.cancel_token {
+                                                        if self.cancel_clicked {
+                                                            // Second click: force cancel
+                                                            token.force_cancel();
+                                                        } else {
+                                                            // First click: safe cancel
+                                                            token.cancel();
+                                                            self.cancel_clicked = true;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
                                             if ui.add_sized(
                                                 [100.0, 30.0],
                                                 Button::new(
@@ -310,10 +356,8 @@ impl eframe::App for PackageApp {
                                                     "https://www.google.com/search?q={}+software+download",
                                                     package.name.replace(" ", "+")
                                                 );
-                                                open_url(&search_url).expect("Failed to open URL");
+                                                let _ = open_url(&search_url);
                                             }
-
-                                            let is_updating_this_package = self.updating_package_id.as_ref() == Some(&package.id);
 
                                             let update_button = ui.add_sized(
                                                 [100.0, 30.0],
