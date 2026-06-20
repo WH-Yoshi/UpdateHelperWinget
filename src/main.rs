@@ -1,15 +1,17 @@
 #![windows_subsystem = "windows"]
 
+mod config;
 mod gui;
 mod winget_manager;
 
 use egui::ViewportBuilder;
 use gui::PackageApp;
+use config::{WINDOW_WIDTH, WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT};
 
 fn main() -> Result<(), eframe::Error> {
     let viewport = ViewportBuilder::default()
-        .with_inner_size([800.0, 600.0])
-        .with_min_inner_size([800.0, 600.0])
+        .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
+        .with_min_inner_size([MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT])
         .with_maximize_button(true)
         .with_minimize_button(true)
         .with_close_button(true)

@@ -1,8 +1,6 @@
 use serde_json::from_str;
-use std::process::Command;
 use std::sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
-use std::time::Duration;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use open;

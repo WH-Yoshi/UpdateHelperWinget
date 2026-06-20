@@ -1,5 +1,6 @@
+use crate::config::*;
 use crate::winget_manager::{open_url, CancellationToken, InstallResult, Package, WingetError, WingetManager};
-use eframe::egui::{vec2, Align, Button, CentralPanel, Color32, Context, Frame, Layout, RichText, ScrollArea};
+use eframe::egui::{vec2, Align, Button, CentralPanel, Color32, Frame, Layout, RichText, ScrollArea, TextEdit};
 use poll_promise::Promise;
 
 pub struct PackageApp {
@@ -12,6 +13,10 @@ pub struct PackageApp {
     updating_package_id: Option<String>,
     cancel_token: Option<CancellationToken>,
     cancel_clicked: bool,
+    search_filter: String,
+    updating_all: bool,
+    packages_to_update_all: Vec<String>,
+    reboot_required: bool,
 }
 
 impl Default for PackageApp {
@@ -26,6 +31,10 @@ impl Default for PackageApp {
             updating_package_id: None,
             cancel_token: None,
             cancel_clicked: false,
+            search_filter: String::new(),
+            updating_all: false,
+            packages_to_update_all: Vec::new(),
+            reboot_required: false,
         }
     }
 }
@@ -74,27 +83,57 @@ impl PackageApp {
 
         self.install_promise = Some(promise);
     }
+
+    fn start_update_all(&mut self) {
+        self.updating_all = true;
+        self.packages_to_update_all = self.packages.iter().map(|p| p.id.clone()).collect();
+        if !self.packages_to_update_all.is_empty() {
+            let next_id = self.packages_to_update_all.remove(0);
+            self.update_single_async(&next_id);
+        }
+    }
+
+    fn get_filtered_packages(&self) -> Vec<&Package> {
+        if self.search_filter.is_empty() {
+            self.packages.iter().collect()
+        } else {
+            let filter_lower = self.search_filter.to_lowercase();
+            self.packages
+                .iter()
+                .filter(|p| {
+                    p.name.to_lowercase().contains(&filter_lower)
+                        || p.id.to_lowercase().contains(&filter_lower)
+                })
+                .collect()
+        }
+    }
 }
 
 impl eframe::App for PackageApp {
-    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = vec2(10.0, 10.0);
-        style.visuals.resize_corner_size = 10.0.into();
-        style.visuals.code_bg_color = Color32::from_rgb(45, 45, 45);
-        style.visuals.window_fill = Color32::from_rgb(32, 32, 32);
-        ctx.set_style(style);
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let mut style = (*ctx.global_style()).clone();
+        style.spacing.item_spacing = vec2(ITEM_SPACING_H, ITEM_SPACING_V);
+        style.visuals.resize_corner_size = CORNER_RADIUS_LARGE.into();
+        style.visuals.code_bg_color = COLOR_BG_CODE;
+        style.visuals.window_fill = COLOR_BG_PRIMARY;
+        ctx.set_global_style(style);
 
         CentralPanel::default().show(ctx, |ui| {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    ui.heading(RichText::new("Gestionnaire de Mises à Jour (winget)")
-                        .size(24.0)
-                        .color(Color32::from_rgb(200, 200, 200)));
+                    let title_text = format!(
+                        "Gestionnaire de Mises à Jour (winget) - {} mise(s) à jour",
+                        self.packages.len()
+                    );
+                    ui.heading(
+                        RichText::new(&title_text)
+                            .size(FONT_SIZE_HEADING)
+                            .color(COLOR_TEXT_PRIMARY)
+                    );
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let refresh_button = ui.add_sized(
-                            [120.0, 30.0],
+                            [BUTTON_LARGE_WIDTH, BUTTON_HEIGHT],
                             Button::new(
                                 RichText::new(
                                     if self.is_loading {
@@ -103,14 +142,14 @@ impl eframe::App for PackageApp {
                                         "⟳ Rafraîchir"
                                     }
                                 )
-                                    .size(16.0)
-                                    .color(Color32::WHITE)
+                                .size(FONT_SIZE_NORMAL)
+                                .color(COLOR_TEXT_WHITE)
                             )
-                                .fill(if self.is_loading {
-                                    Color32::from_rgb(70, 70, 70)
-                                } else {
-                                    Color32::from_rgb(59, 130, 246)
-                                })
+                            .fill(if self.is_loading {
+                                COLOR_BTN_DISABLED
+                            } else {
+                                COLOR_BTN_PRIMARY
+                            })
                         );
 
                         if refresh_button.clicked() && !self.is_loading {
@@ -123,7 +162,7 @@ impl eframe::App for PackageApp {
                     });
                 });
 
-                ui.add_space(10.0);
+                ui.add_space(SPACING_LARGE);
 
                 // Handle fetch promise
                 if let Some(promise) = &self.fetch_promise {
@@ -151,13 +190,32 @@ impl eframe::App for PackageApp {
                         match result {
                             Ok(install_result) => {
                                 self.install_result = Some(install_result.clone());
+                                if install_result.reboot_required {
+                                    self.reboot_required = true;
+                                }
                                 self.error = None;
-                                // Refresh the package list after installation
-                                // self.fetch_updates_async();
+                                // Auto-refresh after installation
+                                if self.updating_all && !self.packages_to_update_all.is_empty() {
+                                    let next_id = self.packages_to_update_all.remove(0);
+                                    self.update_single_async(&next_id);
+                                } else if self.updating_all {
+                                    self.updating_all = false;
+                                    // Refresh package list after all updates
+                                    self.fetch_updates_async();
+                                } else {
+                                    // Refresh for single update
+                                    self.fetch_updates_async();
+                                }
                             }
                             Err(error) => {
                                 self.error = Some(error.clone());
                                 self.install_result = None;
+                                if self.updating_all && !self.packages_to_update_all.is_empty() {
+                                    let next_id = self.packages_to_update_all.remove(0);
+                                    self.update_single_async(&next_id);
+                                } else {
+                                    self.updating_all = false;
+                                }
                             }
                         }
                         self.install_promise = None;
@@ -169,6 +227,30 @@ impl eframe::App for PackageApp {
                     }
                 }
 
+                // Display reboot required notification
+                if self.reboot_required {
+                    Frame::new()
+                        .fill(COLOR_WARNING)
+                        .corner_radius(CORNER_RADIUS)
+                        .inner_margin(INNER_MARGIN_MESSAGE)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.colored_label(
+                                        COLOR_TEXT_WHITE,
+                                        "🔄 Un redémarrage est nécessaire pour appliquer les mises à jour."
+                                    );
+                                });
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui.small_button("×").clicked() {
+                                        self.reboot_required = false;
+                                    }
+                                });
+                            });
+                        });
+                    ui.add_space(SPACING_LARGE);
+                }
+
                 // Display install result
                 if let Some(install_result) = &self.install_result.clone() {
                     let is_success = install_result.status == "Ok";
@@ -176,36 +258,34 @@ impl eframe::App for PackageApp {
                     
                     Frame::new()
                         .fill(if is_success {
-                            Color32::from_rgb(34, 197, 94)  // Green for success
+                            COLOR_SUCCESS
                         } else if is_error {
-                            Color32::from_rgb(220, 38, 38)  // Red for install error
+                            COLOR_ERROR
                         } else {
-                            Color32::from_rgb(234, 179, 8)  // Yellow for other statuses
+                            COLOR_WARNING
                         })
-                        .corner_radius(8.0)
-                        .inner_margin(8.0)
+                        .corner_radius(CORNER_RADIUS)
+                        .inner_margin(INNER_MARGIN_MESSAGE)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.vertical(|ui| {
                                     let status_text = if is_success {
-                                        format!("Installation de {} réussie", install_result.name)
+                                        format!("✓ Installation de {} réussie", install_result.name)
                                     } else if is_error {
-                                        format!("Erreur lors de l'installation de {} (Code: {})", 
+                                        format!("✗ Erreur lors de l'installation de {} (Code: {})", 
                                             install_result.name, install_result.installer_error_code)
                                     } else {
-                                        format!("{} - Status: {}", install_result.name, install_result.status)
+                                        format!("⚙ {} - Status: {}", install_result.name, install_result.status)
                                     };
                                     
-                                    ui.colored_label(Color32::WHITE, status_text);
+                                    ui.colored_label(COLOR_TEXT_WHITE, status_text);
                                     
-                                    // Debug info
                                     ui.label(
-                                        RichText::new(format!("ID: {} | Source: {} | Reboot: {}", 
-                                            install_result.id, 
+                                        RichText::new(format!("Source: {} | Reboot: {}", 
                                             install_result.source,
                                             if install_result.reboot_required { "Oui" } else { "Non" }
                                         ))
-                                        .size(12.0)
+                                        .size(FONT_SIZE_SMALL)
                                         .color(Color32::from_rgb(220, 220, 220))
                                     );
                                 });
@@ -217,49 +297,49 @@ impl eframe::App for PackageApp {
                                 });
                             });
                         });
-                    ui.add_space(10.0);
+                    ui.add_space(SPACING_LARGE);
                 }
                 
                 // Display error message
                 if let Some(error) = &self.error.clone() {
                     let (color, icon, message) = match error {
                         WingetError::NoUpdatesAvailable => (
-                            Color32::from_rgb(59, 130, 246),  // Blue for info
+                            COLOR_INFO,
                             "ℹ",
                             "Aucune mise à jour disponible.".to_string()
                         ),
                         WingetError::PowerShellNotFound => (
-                            Color32::from_rgb(220, 38, 38),  // Red for critical
+                            COLOR_ERROR,
                             "⚠",
                             "PowerShell n'est pas installé ou n'est pas accessible.".to_string()
                         ),
                         WingetError::WinGetModuleNotInstalled => (
-                            Color32::from_rgb(220, 38, 38),
+                            COLOR_ERROR,
                             "⚠",
                             "Le module WinGet n'est pas installé. Installez-le avec: Install-Module Microsoft.WinGet.Client".to_string()
                         ),
                         WingetError::ScriptExecutionDisabled => (
-                            Color32::from_rgb(220, 38, 38),
+                            COLOR_ERROR,
                             "⚠",
                             "L'exécution de scripts PowerShell est désactivée. Exécutez PowerShell en tant qu'administrateur et tapez: Set-ExecutionPolicy RemoteSigned".to_string()
                         ),
                         WingetError::PowerShellError { stderr } => (
-                            Color32::from_rgb(220, 38, 38),
+                            COLOR_ERROR,
                             "⚠",
                             format!("Erreur PowerShell: {}", stderr)
                         ),
                         WingetError::JsonParseError { error, raw_data } => (
-                            Color32::from_rgb(220, 38, 38),
+                            COLOR_ERROR,
                             "⚠",
                             format!("Erreur d'analyse JSON: {}\nDonnées brutes: {}", error, raw_data)
                         ),
                         WingetError::CommandFailed { error } => (
-                            Color32::from_rgb(220, 38, 38),
+                            COLOR_ERROR,
                             "⚠",
                             format!("Échec de la commande: {}", error)
                         ),
                         WingetError::Cancelled => (
-                            Color32::from_rgb(234, 179, 8),  // Yellow for warning
+                            COLOR_WARNING,
                             "⏸",
                             "Mise à jour annulée par l'utilisateur.".to_string()
                         ),
@@ -267,13 +347,13 @@ impl eframe::App for PackageApp {
                     
                     Frame::new()
                         .fill(color)
-                        .corner_radius(8.0)
-                        .inner_margin(8.0)
+                        .corner_radius(CORNER_RADIUS)
+                        .inner_margin(INNER_MARGIN_MESSAGE)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.vertical(|ui| {
                                     ui.colored_label(
-                                        Color32::WHITE,
+                                        COLOR_TEXT_WHITE,
                                         format!("{} {}", icon, message)
                                     );
                                 });
@@ -285,59 +365,119 @@ impl eframe::App for PackageApp {
                                 });
                             });
                         });
-                    ui.add_space(10.0);
+                    ui.add_space(SPACING_LARGE);
                 }
 
+                // Search filter
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("🔍 Rechercher:").size(FONT_SIZE_NORMAL));
+                    TextEdit::singleline(&mut self.search_filter)
+                        .hint_text("Nom ou ID du paquet...")
+                        .desired_width(f32::INFINITY)
+                        .show(ui);
+                });
+
+                ui.add_space(SPACING_MEDIUM);
+
+                // Control buttons
+                ui.horizontal(|ui| {
+                    let update_all_enabled = !self.packages.is_empty() 
+                        && !self.is_loading 
+                        && self.updating_package_id.is_none()
+                        && !self.updating_all;
+                    
+                    if update_all_enabled {
+                        let update_all_button = ui.add_sized(
+                            [BUTTON_LARGE_WIDTH + 30.0, BUTTON_HEIGHT],
+                            Button::new(
+                                RichText::new("📦 Tout installer")
+                                    .color(COLOR_TEXT_WHITE)
+                            )
+                            .fill(COLOR_BTN_SECONDARY)
+                        );
+
+                        if update_all_button.clicked() {
+                            self.start_update_all();
+                        }
+                    } else {
+                        let button_text = if self.updating_all {
+                            "⏳ Mise à jour..."
+                        } else {
+                            "📦 Tout installer"
+                        };
+                        let _ = ui.add_sized(
+                            [BUTTON_LARGE_WIDTH + 30.0, BUTTON_HEIGHT],
+                            Button::new(
+                                RichText::new(button_text)
+                                    .color(COLOR_TEXT_TERTIARY)
+                            )
+                            .fill(COLOR_BTN_DISABLED)
+                        );
+                    }
+
+                    ui.label(
+                        RichText::new(format!("{} paquet(s) visible(s)", self.get_filtered_packages().len()))
+                            .size(FONT_SIZE_NORMAL)
+                            .color(COLOR_TEXT_SECONDARY)
+                    );
+                });
+
+                ui.add_space(SPACING_LARGE);
+
+                // Package list
                 ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         let mut package_to_update = None;
-                        for package in &self.packages {
-                            ui.add_space(4.0);
+                        let filtered_packages_ids: Vec<_> = self.get_filtered_packages()
+                            .iter()
+                            .map(|p| (p.id.clone(), p.name.clone(), p.version.clone(), p.available_version.clone()))
+                            .collect();
+                        
+                        for (package_id, package_name, version, available_version) in filtered_packages_ids {
+                            ui.add_space(SPACING_SMALL);
                             Frame::new()
-                                .fill(Color32::from_rgb(45, 45, 45))
-                                .corner_radius(8.0)
-                                .inner_margin(12.0)
+                                .fill(COLOR_BG_SECONDARY)
+                                .corner_radius(CORNER_RADIUS)
+                                .inner_margin(INNER_MARGIN)
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.vertical(|ui| {
                                             ui.heading(
-                                                RichText::new(&package.name)
-                                                    .size(18.0)
-                                                    .color(Color32::from_rgb(200, 200, 200))
+                                                RichText::new(&package_name)
+                                                    .size(FONT_SIZE_TITLE)
+                                                    .color(COLOR_TEXT_PRIMARY)
                                             );
                                             ui.label(
-                                                RichText::new(&package.id)
-                                                    .color(Color32::from_rgb(150, 150, 150))
+                                                RichText::new(&package_id)
+                                                    .color(COLOR_TEXT_SECONDARY)
                                             );
                                         });
 
                                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                            let is_updating_this_package = self.updating_package_id.as_ref() == Some(&package.id);
+                                            let is_updating_this_package = self.updating_package_id.as_ref() == Some(&package_id);
 
                                             // Show cancel button if this package is updating
                                             if is_updating_this_package {
                                                 let (button_text, button_color) = if self.cancel_clicked {
-                                                    ("Forcer ?", Color32::from_rgb(185, 28, 28)) // Darker red for force
+                                                    ("Forcer ?", COLOR_CRITICAL_BUTTON)
                                                 } else {
-                                                    ("Annuler", Color32::from_rgb(220, 38, 38)) // Regular red for cancel
+                                                    ("Annuler", COLOR_BTN_DANGER)
                                                 };
 
                                                 let cancel_button = ui.add_sized(
-                                                    [100.0, 30.0],
+                                                    [BUTTON_WIDTH, BUTTON_HEIGHT],
                                                     Button::new(
                                                         RichText::new(button_text)
-                                                            .color(Color32::WHITE)
+                                                            .color(COLOR_TEXT_WHITE)
                                                     ).fill(button_color)
                                                 );
 
                                                 if cancel_button.clicked() {
                                                     if let Some(token) = &self.cancel_token {
                                                         if self.cancel_clicked {
-                                                            // Second click: force cancel
                                                             token.force_cancel();
                                                         } else {
-                                                            // First click: safe cancel
                                                             token.cancel();
                                                             self.cancel_clicked = true;
                                                         }
@@ -346,39 +486,39 @@ impl eframe::App for PackageApp {
                                             }
 
                                             if ui.add_sized(
-                                                [100.0, 30.0],
+                                                [BUTTON_WIDTH, BUTTON_HEIGHT],
                                                 Button::new(
-                                                    RichText::new("Rechercher")
-                                                        .color(Color32::WHITE)
-                                                ).fill(Color32::from_rgb(59, 130, 246))
+                                                    RichText::new("🔗 Info")
+                                                        .color(COLOR_TEXT_WHITE)
+                                                ).fill(COLOR_BTN_PRIMARY)
                                             ).clicked() {
                                                 let search_url = format!(
                                                     "https://www.google.com/search?q={}+software+download",
-                                                    package.name.replace(" ", "+")
+                                                    package_name.replace(" ", "+")
                                                 );
                                                 let _ = open_url(&search_url);
                                             }
 
                                             let update_button = ui.add_sized(
-                                                [100.0, 30.0],
+                                                [BUTTON_WIDTH, BUTTON_HEIGHT],
                                                 Button::new(
                                                     RichText::new(
                                                         if is_updating_this_package {
-                                                            "Mise à jour..."
+                                                            "⏳..."
                                                         } else {
-                                                            "Installer"
+                                                            "⬆ Maj"
                                                         }
-                                                    ).color(Color32::BLACK)
+                                                    ).color(COLOR_TEXT_WHITE)
                                                 )
                                                     .fill(if is_updating_this_package {
-                                                        Color32::from_rgb(70, 70, 70)
+                                                        COLOR_BTN_DISABLED
                                                     } else {
-                                                        Color32::from_rgb(234, 179, 8)
+                                                        COLOR_BTN_SECONDARY
                                                     })
                                             );
 
-                                            if update_button.clicked() && self.updating_package_id.is_none() {
-                                                package_to_update = Some(package.id.clone());
+                                            if update_button.clicked() && self.updating_package_id.is_none() && !self.updating_all {
+                                                package_to_update = Some(package_id.clone());
                                             }
 
                                             if is_updating_this_package {
@@ -387,25 +527,21 @@ impl eframe::App for PackageApp {
 
                                             ui.horizontal(|ui| {
                                                 ui.label(
-                                                    RichText::new(&package.available_version)
-                                                        .color(if package.version != package.available_version {
-                                                            Color32::from_rgb(234, 179, 8)
-                                                        } else {
-                                                            Color32::from_rgb(34, 197, 94)
-                                                        })
-                                                        .size(16.0)
+                                                    RichText::new(&available_version)
+                                                        .color(COLOR_WARNING)
+                                                        .size(FONT_SIZE_NORMAL)
                                                 );
 
                                                 ui.label(
-                                                    RichText::new(" to ")
-                                                        .color(Color32::from_rgb(100, 100, 100))
-                                                        .size(16.0)
+                                                    RichText::new("→")
+                                                        .color(COLOR_TEXT_TERTIARY)
+                                                        .size(FONT_SIZE_NORMAL)
                                                 );
 
                                                 ui.label(
-                                                    RichText::new(&package.version)
-                                                        .color(Color32::from_rgb(150, 150, 150))
-                                                        .size(16.0)
+                                                    RichText::new(&version)
+                                                        .color(COLOR_TEXT_SECONDARY)
+                                                        .size(FONT_SIZE_NORMAL)
                                                 );
                                             });
 
@@ -420,5 +556,10 @@ impl eframe::App for PackageApp {
                     });
             });
         });
+    }
+
+    fn ui(&mut self, _ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // This method is deprecated but still required by the App trait in some versions
+        // The main UI logic is in the update method above
     }
 }
