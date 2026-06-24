@@ -2,7 +2,7 @@ use serde_json::from_str;
 use std::sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
 #[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
+use std::{os::windows::process::CommandExt, process::Command};
 use open;
 
 /// Token to allow cancelling an ongoing operation
@@ -211,6 +211,8 @@ impl WingetManager {
                             // Monitor thread to handle force cancellation
                             thread::spawn(move || {
                                 while !cancel_token_clone.is_force_cancelled() {
+                                    use std::time::Duration;
+
                                     thread::sleep(Duration::from_millis(100));
                                 }
                                 // Force kill the process tree
