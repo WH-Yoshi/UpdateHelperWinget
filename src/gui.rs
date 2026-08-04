@@ -55,8 +55,8 @@ impl PackageApp {
 
         let promise = Promise::spawn_thread("winget_fetch", || {
             let rx = WingetManager::fetch_updates_async();
-            rx.recv().unwrap_or(Err(WingetError::CommandFailed { 
-                error: "Erreur de communication avec le thread".to_string() 
+            rx.recv().unwrap_or(Err(WingetError::CommandFailed {
+                error: "Erreur de communication avec le thread".to_string()
             }))
         });
 
@@ -76,8 +76,8 @@ impl PackageApp {
         let package_id = package_id.to_string();
         let promise = Promise::spawn_thread("winget_install_single", move || {
             let rx = WingetManager::install_single(&package_id, cancel_token);
-            rx.recv().unwrap_or(Err(WingetError::CommandFailed { 
-                error: "Erreur de communication avec le thread".to_string() 
+            rx.recv().unwrap_or(Err(WingetError::CommandFailed {
+                error: "Erreur de communication avec le thread".to_string()
             }))
         });
 
@@ -110,15 +110,15 @@ impl PackageApp {
 }
 
 impl eframe::App for PackageApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let mut style = (*ctx.global_style()).clone();
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let mut style = (*ui.global_style()).clone();
         style.spacing.item_spacing = vec2(ITEM_SPACING_H, ITEM_SPACING_V);
         style.visuals.resize_corner_size = CORNER_RADIUS_LARGE.into();
         style.visuals.code_bg_color = COLOR_BG_CODE;
         style.visuals.window_fill = COLOR_BG_PRIMARY;
-        ctx.set_global_style(style);
+        ui.set_global_style(style);
 
-        CentralPanel::default().show(ctx, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     let title_text = format!(
@@ -142,14 +142,14 @@ impl eframe::App for PackageApp {
                                         "⟳ Rafraîchir"
                                     }
                                 )
-                                .size(FONT_SIZE_NORMAL)
-                                .color(COLOR_TEXT_WHITE)
+                                    .size(FONT_SIZE_NORMAL)
+                                    .color(COLOR_TEXT_WHITE)
                             )
-                            .fill(if self.is_loading {
-                                COLOR_BTN_DISABLED
-                            } else {
-                                COLOR_BTN_PRIMARY
-                            })
+                                .fill(if self.is_loading {
+                                    COLOR_BTN_DISABLED
+                                } else {
+                                    COLOR_BTN_PRIMARY
+                                }),
                         );
 
                         if refresh_button.clicked() && !self.is_loading {
@@ -180,7 +180,7 @@ impl eframe::App for PackageApp {
                         self.fetch_promise = None;
                         self.is_loading = false;
                     } else {
-                        ctx.request_repaint();
+                        ui.request_repaint();
                     }
                 }
 
@@ -223,7 +223,7 @@ impl eframe::App for PackageApp {
                         self.cancel_token = None;
                         self.cancel_clicked = false;
                     } else {
-                        ctx.request_repaint();
+                        ui.request_repaint();
                     }
                 }
 
@@ -238,7 +238,7 @@ impl eframe::App for PackageApp {
                                 ui.vertical(|ui| {
                                     ui.colored_label(
                                         COLOR_TEXT_WHITE,
-                                        "🔄 Un redémarrage est nécessaire pour appliquer les mises à jour."
+                                        "🔄 Un redémarrage est nécessaire pour appliquer les mises à jour.",
                                     );
                                 });
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -255,7 +255,7 @@ impl eframe::App for PackageApp {
                 if let Some(install_result) = &self.install_result.clone() {
                     let is_success = install_result.status == "Ok";
                     let is_error = install_result.status == "InstallError";
-                    
+
                     Frame::new()
                         .fill(if is_success {
                             COLOR_SUCCESS
@@ -272,24 +272,24 @@ impl eframe::App for PackageApp {
                                     let status_text = if is_success {
                                         format!("✓ Installation de {} réussie", install_result.name)
                                     } else if is_error {
-                                        format!("✗ Erreur lors de l'installation de {} (Code: {})", 
-                                            install_result.name, install_result.installer_error_code)
+                                        format!("✗ Erreur lors de l'installation de {} (Code: {})",
+                                                install_result.name, install_result.installer_error_code)
                                     } else {
                                         format!("⚙ {} - Status: {}", install_result.name, install_result.status)
                                     };
-                                    
+
                                     ui.colored_label(COLOR_TEXT_WHITE, status_text);
-                                    
+
                                     ui.label(
-                                        RichText::new(format!("Source: {} | Reboot: {}", 
-                                            install_result.source,
-                                            if install_result.reboot_required { "Oui" } else { "Non" }
+                                        RichText::new(format!("Source: {} | Reboot: {}",
+                                                              install_result.source,
+                                                              if install_result.reboot_required { "Oui" } else { "Non" }
                                         ))
-                                        .size(FONT_SIZE_SMALL)
-                                        .color(Color32::from_rgb(220, 220, 220))
+                                            .size(FONT_SIZE_SMALL)
+                                            .color(Color32::from_rgb(220, 220, 220))
                                     );
                                 });
-                                
+
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     if ui.small_button("×").clicked() {
                                         self.install_result = None;
@@ -299,7 +299,7 @@ impl eframe::App for PackageApp {
                         });
                     ui.add_space(SPACING_LARGE);
                 }
-                
+
                 // Display error message
                 if let Some(error) = &self.error.clone() {
                     let (color, icon, message) = match error {
@@ -344,7 +344,7 @@ impl eframe::App for PackageApp {
                             "Mise à jour annulée par l'utilisateur.".to_string()
                         ),
                     };
-                    
+
                     Frame::new()
                         .fill(color)
                         .corner_radius(CORNER_RADIUS)
@@ -354,10 +354,10 @@ impl eframe::App for PackageApp {
                                 ui.vertical(|ui| {
                                     ui.colored_label(
                                         COLOR_TEXT_WHITE,
-                                        format!("{} {}", icon, message)
+                                        format!("{} {}", icon, message),
                                     );
                                 });
-                                
+
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     if ui.small_button("×").clicked() {
                                         self.error = None;
@@ -381,11 +381,11 @@ impl eframe::App for PackageApp {
 
                 // Control buttons
                 ui.horizontal(|ui| {
-                    let update_all_enabled = !self.packages.is_empty() 
-                        && !self.is_loading 
+                    let update_all_enabled = !self.packages.is_empty()
+                        && !self.is_loading
                         && self.updating_package_id.is_none()
                         && !self.updating_all;
-                    
+
                     if update_all_enabled {
                         let update_all_button = ui.add_sized(
                             [BUTTON_LARGE_WIDTH + 30.0, BUTTON_HEIGHT],
@@ -393,7 +393,7 @@ impl eframe::App for PackageApp {
                                 RichText::new("📦 Tout installer")
                                     .color(COLOR_TEXT_WHITE)
                             )
-                            .fill(COLOR_BTN_SECONDARY)
+                                .fill(COLOR_BTN_SECONDARY),
                         );
 
                         if update_all_button.clicked() {
@@ -411,7 +411,7 @@ impl eframe::App for PackageApp {
                                 RichText::new(button_text)
                                     .color(COLOR_TEXT_TERTIARY)
                             )
-                            .fill(COLOR_BTN_DISABLED)
+                                .fill(COLOR_BTN_DISABLED),
                         );
                     }
 
@@ -433,7 +433,7 @@ impl eframe::App for PackageApp {
                             .iter()
                             .map(|p| (p.id.clone(), p.name.clone(), p.version.clone(), p.available_version.clone()))
                             .collect();
-                        
+
                         for (package_id, package_name, version, available_version) in filtered_packages_ids {
                             ui.add_space(SPACING_SMALL);
                             Frame::new()
@@ -470,7 +470,7 @@ impl eframe::App for PackageApp {
                                                     Button::new(
                                                         RichText::new(button_text)
                                                             .color(COLOR_TEXT_WHITE)
-                                                    ).fill(button_color)
+                                                    ).fill(button_color),
                                                 );
 
                                                 if cancel_button.clicked() {
@@ -490,7 +490,7 @@ impl eframe::App for PackageApp {
                                                 Button::new(
                                                     RichText::new("🔗 Info")
                                                         .color(COLOR_TEXT_WHITE)
-                                                ).fill(COLOR_BTN_PRIMARY)
+                                                ).fill(COLOR_BTN_PRIMARY),
                                             ).clicked() {
                                                 let search_url = format!(
                                                     "https://www.google.com/search?q={}+software+download",
@@ -514,7 +514,7 @@ impl eframe::App for PackageApp {
                                                         COLOR_BTN_DISABLED
                                                     } else {
                                                         COLOR_BTN_SECONDARY
-                                                    })
+                                                    }),
                                             );
 
                                             if update_button.clicked() && self.updating_package_id.is_none() && !self.updating_all {
@@ -544,7 +544,6 @@ impl eframe::App for PackageApp {
                                                         .size(FONT_SIZE_NORMAL)
                                                 );
                                             });
-
                                         });
                                     });
                                 });
@@ -556,10 +555,5 @@ impl eframe::App for PackageApp {
                     });
             });
         });
-    }
-
-    fn ui(&mut self, _ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // This method is deprecated but still required by the App trait in some versions
-        // The main UI logic is in the update method above
     }
 }

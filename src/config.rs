@@ -6,25 +6,25 @@ pub const WINDOW_HEIGHT: f32 = 700.0;
 pub const MIN_WINDOW_WIDTH: f32 = 900.0;
 pub const MIN_WINDOW_HEIGHT: f32 = 600.0;
 
-// Colors - Background
+// Colours - Background
 pub const COLOR_BG_PRIMARY: Color32 = Color32::from_rgb(32, 32, 32);
 pub const COLOR_BG_SECONDARY: Color32 = Color32::from_rgb(45, 45, 45);
 pub const COLOR_BG_CODE: Color32 = Color32::from_rgb(45, 45, 45);
 
-// Colors - Text
+// Colours - Text
 pub const COLOR_TEXT_PRIMARY: Color32 = Color32::from_rgb(200, 200, 200);
 pub const COLOR_TEXT_SECONDARY: Color32 = Color32::from_rgb(150, 150, 150);
 pub const COLOR_TEXT_TERTIARY: Color32 = Color32::from_rgb(100, 100, 100);
 pub const COLOR_TEXT_WHITE: Color32 = Color32::WHITE;
 
-// Colors - Status
+// Colours - Status
 pub const COLOR_SUCCESS: Color32 = Color32::from_rgb(34, 197, 94);
 pub const COLOR_ERROR: Color32 = Color32::from_rgb(220, 38, 38);
 pub const COLOR_WARNING: Color32 = Color32::from_rgb(234, 179, 8);
 pub const COLOR_INFO: Color32 = Color32::from_rgb(59, 130, 246);
 pub const COLOR_CRITICAL_BUTTON: Color32 = Color32::from_rgb(185, 28, 28);
 
-// Colors - Button States
+// Colours - Button States
 pub const COLOR_BTN_PRIMARY: Color32 = Color32::from_rgb(59, 130, 246);
 pub const COLOR_BTN_SECONDARY: Color32 = Color32::from_rgb(234, 179, 8);
 pub const COLOR_BTN_DISABLED: Color32 = Color32::from_rgb(70, 70, 70);
@@ -60,7 +60,7 @@ pub const ITEM_SPACING_V: f32 = 10.0;
 
 // Timeouts (in seconds)
 pub const INSTALL_TIMEOUT_SECS: u64 = 300; // 5 minutes default
-pub const FETCH_TIMEOUT_SECS: u64 = 60;   // 1 minute for fetching updates
+pub const FETCH_TIMEOUT_SECS: u64 = 60; // 1 minute for fetching updates
 
 // UI state
 pub const SPINNER_SIZE: f32 = 20.0;

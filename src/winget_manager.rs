@@ -1,11 +1,13 @@
+use open;
 use serde_json::from_str;
-use std::sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc,
+};
 use std::thread;
 #[cfg(target_os = "windows")]
 use std::{os::windows::process::CommandExt, process::Command};
-use open;
 
-/// Token to allow cancelling an ongoing operation
 #[derive(Clone)]
 pub struct CancellationToken {
     cancelled: Arc<AtomicBool>,
@@ -83,11 +85,12 @@ impl WingetError {
             WingetError::PowerShellNotFound
         } else if stderr.contains("execution of scripts is disabled") {
             WingetError::ScriptExecutionDisabled
-        } else if stderr.contains("module") && (stderr.contains("not") || stderr.contains("cannot")) {
+        } else if stderr.contains("module") && (stderr.contains("not") || stderr.contains("cannot"))
+        {
             WingetError::WinGetModuleNotInstalled
         } else {
-            WingetError::PowerShellError { 
-                stderr: stderr.trim().to_string() 
+            WingetError::PowerShellError {
+                stderr: stderr.trim().to_string(),
             }
         }
     }
@@ -116,7 +119,8 @@ impl WingetManager {
                 let output = Command::new("pwsh")
                     .args([
                         "-NoProfile",
-                        "-ExecutionPolicy", "Bypass",
+                        "-ExecutionPolicy",
+                        "Bypass",
                         "-Command",
                         &script,
                     ])
@@ -124,8 +128,9 @@ impl WingetManager {
                     .output();
 
                 #[cfg(not(target_os = "windows"))]
-                let output: Result<std::process::Output, std::io::Error> = 
-                    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Not Windows"));
+                let output: Result<std::process::Output, std::io::Error> = Err(
+                    std::io::Error::new(std::io::ErrorKind::Unsupported, "Not Windows"),
+                );
 
                 match output {
                     Ok(out) if out.status.success() => {
@@ -142,9 +147,11 @@ impl WingetManager {
                 }
             });
 
-            let final_result = result.unwrap_or_else(|_| Err(WingetError::CommandFailed {
-                error: "Parser panicked during execution".to_string(),
-            }));
+            let final_result = result.unwrap_or_else(|_| {
+                Err(WingetError::CommandFailed {
+                    error: "Parser panicked during execution".to_string(),
+                })
+            });
 
             let _ = tx.send(final_result);
         });
@@ -174,12 +181,17 @@ impl WingetManager {
         })
     }
 
-    pub fn install_single(id: &str, cancel_token: CancellationToken) -> mpsc::Receiver<Result<InstallResult, WingetError>> {
+    pub fn install_single(
+        id: &str,
+        cancel_token: CancellationToken,
+    ) -> mpsc::Receiver<Result<InstallResult, WingetError>> {
         let escaped_id = Self::escape_powershell_string(id);
-        let script = format!(r#"
+        let script = format!(
+            r#"
             Import-Module Microsoft.WinGet.Client
             Install-WinGetPackage -id '{escaped_id}' | ConvertTo-Json -Compress -Depth 10
-        "#);
+        "#
+        );
 
         let (tx, rx) = mpsc::channel();
 
@@ -195,7 +207,8 @@ impl WingetManager {
                     let child_process = Command::new("pwsh")
                         .args([
                             "-NoProfile",
-                            "-ExecutionPolicy", "Bypass",
+                            "-ExecutionPolicy",
+                            "Bypass",
                             "-Command",
                             &script,
                         ])
@@ -207,7 +220,7 @@ impl WingetManager {
                         Ok(mut child) => {
                             let child_id = child.id();
                             let cancel_token_clone = cancel_token.clone();
-                            
+
                             // Monitor thread to handle force cancellation
                             thread::spawn(move || {
                                 while !cancel_token_clone.is_force_cancelled() {
@@ -232,10 +245,13 @@ impl WingetManager {
 
                             match output {
                                 Ok(out) if out.status.success() => {
-                                    let json = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                                    from_str::<InstallResult>(&json).map_err(|e| WingetError::JsonParseError {
-                                        error: e.to_string(),
-                                        raw_data: json,
+                                    let json =
+                                        String::from_utf8_lossy(&out.stdout).trim().to_string();
+                                    from_str::<InstallResult>(&json).map_err(|e| {
+                                        WingetError::JsonParseError {
+                                            error: e.to_string(),
+                                            raw_data: json,
+                                        }
                                     })
                                 }
                                 Ok(out) => {
@@ -261,9 +277,11 @@ impl WingetManager {
                 }
             });
 
-            let final_result = result.unwrap_or_else(|_| Err(WingetError::CommandFailed {
-                error: "Parser panicked during execution".to_string(),
-            }));
+            let final_result = result.unwrap_or_else(|_| {
+                Err(WingetError::CommandFailed {
+                    error: "Parser panicked during execution".to_string(),
+                })
+            });
 
             let _ = tx.send(final_result);
         });
@@ -271,8 +289,6 @@ impl WingetManager {
         rx
     }
 }
-
-
 
 pub fn open_url(url: &str) -> Result<(), String> {
     open::that(url).map_err(|e| format!("Failed to open URL: {}", e))
